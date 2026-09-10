@@ -1,0 +1,8 @@
+{
+  "name": "Professor Pro",
+  "description": "Ferramenta local para correção assistida por IA de redações do ENEM via OCR e processamento Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
