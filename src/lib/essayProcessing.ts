@@ -46,11 +46,14 @@ export function isApiKeyErrorMessage(message: string): boolean {
 }
 
 export function isAiOverloadedErrorMessage(message: string): boolean {
+  const lower = message.toLowerCase();
   return (
-    message.includes('503') ||
-    message.includes('UNAVAILABLE') ||
-    message.includes('high demand') ||
-    message.includes('overloaded')
+    lower.includes('503') ||
+    lower.includes('unavailable') ||
+    lower.includes('high demand') ||
+    lower.includes('overloaded') ||
+    lower.includes('alta demanda') ||
+    lower.includes('sobrecarregada')
   );
 }
 

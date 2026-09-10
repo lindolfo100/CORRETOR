@@ -34,3 +34,14 @@ View your app in AI Studio: https://ai.studio/apps/96e01fcf-10b9-4f64-88f8-e2186
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Deploy na Vercel
+
+O projeto está 100% configurado para a Vercel com suporte tanto para o frontend Vite quanto para os endpoints de API serverless (`/api/ocr` e `/api/analyze`):
+
+1. Conecte o repositório na **Vercel** (`New Project` -> Selecione o repositório).
+2. O framework preset será detectado automaticamente como **Vite** e as rotas de `/api` serão executadas como **Vercel Serverless Functions**.
+3. Em **Environment Variables**, adicione:
+   - `GEMINI_API_KEY`: Sua chave de API do Google Gemini.
+4. Clique em **Deploy**. As rotas de frontend (SPA) e backend (`/api`) funcionarão automaticamente.
+

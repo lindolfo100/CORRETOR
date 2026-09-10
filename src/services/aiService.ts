@@ -37,6 +37,54 @@ export async function fetchLanguageToolInsights(text: string): Promise<{ text: s
   }
 }
 
+function getSavedModel(fallback: string = 'gemini-3.8-flash'): string {
+  if (typeof window === 'undefined') return fallback;
+  const stored = localStorage.getItem('user_gemini_model');
+  if (!stored || stored === 'gemini-flash-lite-latest') {
+    return fallback;
+  }
+  return stored;
+}
+
+async function safeParseResponse(response: Response, defaultErrorText: string): Promise<any> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!response.ok) {
+    let errorMsg = `HTTP ${response.status}`;
+    try {
+      if (contentType.includes('application/json')) {
+        const errorData = await response.json();
+        errorMsg = errorData.error || errorMsg;
+      } else {
+        const raw = await response.text();
+        if (raw.includes('503') || raw.includes('UNAVAILABLE') || raw.includes('high demand') || response.status === 503) {
+          errorMsg = 'Os servidores do Gemini estão com alta demanda momentânea. Aguarde alguns segundos e tente novamente.';
+        } else if (raw.includes('429') || response.status === 429) {
+          errorMsg = 'Limite de requisições por minuto atingido. Aguarde um instante.';
+        } else {
+          errorMsg = `${defaultErrorText} (HTTP ${response.status})`;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    throw Object.assign(new Error(errorMsg), { status: response.status });
+  }
+
+  if (contentType.includes('application/json')) {
+    return await response.json();
+  }
+
+  const text = await response.text();
+  if (text.trim().startsWith('<')) {
+    throw new Error('O servidor retornou uma resposta em formato inesperado (HTML). Verifique se o servidor está ativo.');
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { text };
+  }
+}
+
 export async function processEssayImageOCR(base64Image: string, mimeType: string = 'image/jpeg'): Promise<string> {
   const attemptOCR = async (retries = 3, delay = 2000): Promise<string> => {
     try {
@@ -59,8 +107,6 @@ REGRAS ESTRITAS:
 7. Preste atenção especial a letras que se confundem em manuscrito: a/o, n/m, u/v, l/t, r/n.
 8. Retorne SOMENTE o texto bruto transcrito, sem formatação adicional.`;
 
-      const userModel = typeof window !== 'undefined' ? localStorage.getItem('user_gemini_model') : null;
-
       const response = await fetch('/api/ocr', {
         method: 'POST',
         headers,
@@ -69,17 +115,11 @@ REGRAS ESTRITAS:
           mimeType: mimeType || 'image/jpeg',
           prompt: promptText,
           responseMimeType: "text/plain",
-          model: userModel || 'gemini-flash-lite-latest'
+          model: getSavedModel('gemini-3.8-flash')
         })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const status = response.status;
-        throw Object.assign(new Error(errorData.error || `HTTP ${status}`), { status });
-      }
-
-      const resultData = await response.json();
+      const resultData = await safeParseResponse(response, "Falha ao processar OCR da imagem");
       return resultData.text || "Transcrição vazia";
     } catch (err: any) {
       const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED');
@@ -221,8 +261,6 @@ Foi sinalizado que este texto pertence a um aluno com Transtorno do Espectro Aut
         headers["x-gemini-api-key"] = localKey;
       }
 
-      const userModel = typeof window !== 'undefined' ? localStorage.getItem('user_gemini_model') : null;
-
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers,
@@ -233,17 +271,11 @@ Foi sinalizado que este texto pertence a um aluno com Transtorno do Espectro Aut
           systemInstruction,
           responseMimeType: "application/json",
           responseSchema: essayAnalysisSchema,
-          model: userModel || 'gemini-flash-latest'
+          model: getSavedModel('gemini-3.8-flash')
         })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const status = response.status;
-        throw Object.assign(new Error(errorData.error || `HTTP ${status}`), { status });
-      }
-
-      const resultData = await response.json();
+      const resultData = await safeParseResponse(response, "Falha ao analisar redação com IA");
       
       let result;
       try {

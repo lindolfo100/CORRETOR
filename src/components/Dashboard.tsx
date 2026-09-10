@@ -36,7 +36,11 @@ export function Dashboard({ essays, classrooms = [], globalTheme, onGlobalThemeC
     return (!localKey || localKey.trim() === '');
   });
   const [tempApiKey, setTempApiKey] = useState(localStorage.getItem('user_gemini_api_key') || '');
-  const [selectedModel, setSelectedModel] = useState(localStorage.getItem('user_gemini_model') || 'gemini-flash-latest');
+  const [selectedModel, setSelectedModel] = useState(() => {
+    const m = localStorage.getItem('user_gemini_model');
+    if (!m || m === 'gemini-flash-lite-latest') return 'gemini-flash-latest';
+    return m;
+  });
   const [isSavingKey, setIsSavingKey] = useState(false);
 
   const saveApiKey = () => {
@@ -356,23 +360,23 @@ export function Dashboard({ essays, classrooms = [], globalTheme, onGlobalThemeC
                     </div>
 
                     <div 
-                      onClick={() => setSelectedModel('gemini-flash-lite-latest')}
+                      onClick={() => setSelectedModel('gemini-3.1-flash-lite')}
                       className={cn(
                         "p-4 rounded-xl border transition-all cursor-pointer flex items-start gap-3",
-                        selectedModel === 'gemini-flash-lite-latest' 
+                        selectedModel === 'gemini-3.1-flash-lite' 
                           ? "bg-[#2563EB]/5 border-[#2563EB] shadow-xs" 
                           : "bg-[#F8F9FA] border-[#E5E7EB] hover:border-[#D1D5DB]"
                       )}
                     >
                       <div className={cn(
                         "w-4 h-4 rounded-full border flex items-center justify-center mt-0.5 shrink-0 transition-colors",
-                        selectedModel === 'gemini-flash-lite-latest' ? "border-[#2563EB] bg-[#2563EB]" : "border-[#D1D5DB] bg-white"
+                        selectedModel === 'gemini-3.1-flash-lite' ? "border-[#2563EB] bg-[#2563EB]" : "border-[#D1D5DB] bg-white"
                       )}>
-                        {selectedModel === 'gemini-flash-lite-latest' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                        {selectedModel === 'gemini-3.1-flash-lite' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-bold text-xs text-[#111827]">gemini-flash-lite-latest</span>
+                          <span className="font-bold text-xs text-[#111827]">gemini-3.1-flash-lite</span>
                           <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#059669]/10 text-[#059669]">Ultra Rápido</span>
                         </div>
                         <p className="text-xs text-[#6B7280] leading-relaxed">

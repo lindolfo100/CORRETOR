@@ -61,7 +61,7 @@ describe('essayPipelineCore', () => {
     });
 
     expect(updateStatus).toHaveBeenNthCalledWith(1, 'processing');
-    expect(updateStatus).toHaveBeenNthCalledWith(2, 'error');
+    expect(updateStatus).toHaveBeenNthCalledWith(2, 'error', { error: '503 UNAVAILABLE' });
     expect(addToast).toHaveBeenCalledWith(
       'A IA está sobrecarregada no momento. Tente novamente em alguns minutos.',
       'warning',
