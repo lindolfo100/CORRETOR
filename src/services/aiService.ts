@@ -49,17 +49,25 @@ function getSavedModel(fallback: string = 'gemini-3.8-flash'): string {
 async function safeParseResponse(response: Response, defaultErrorText: string): Promise<any> {
   const contentType = response.headers.get('content-type') || '';
   if (!response.ok) {
-    let errorMsg = `HTTP ${response.status}`;
+    let errorMsg = `${defaultErrorText} (HTTP ${response.status})`;
     try {
       if (contentType.includes('application/json')) {
         const errorData = await response.json();
         errorMsg = errorData.error || errorMsg;
       } else {
         const raw = await response.text();
-        if (raw.includes('503') || raw.includes('UNAVAILABLE') || raw.includes('high demand') || response.status === 503) {
+        const stripped = raw.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+
+        if (stripped.includes('GEMINI_API_KEY') || raw.includes('GEMINI_API_KEY')) {
+          errorMsg = 'A chave GEMINI_API_KEY não foi configurada nas variáveis de ambiente da Vercel. Adicione GEMINI_API_KEY no painel da Vercel ou insira sua chave diretamente no ícone de configurações da aplicação.';
+        } else if (response.status === 413 || raw.includes('413') || raw.includes('Payload Too Large')) {
+          errorMsg = 'A imagem é muito pesada para envio à Vercel (limite de 4.5MB). Tente diminuir a resolução ou comprimir a foto antes de enviar.';
+        } else if (raw.includes('503') || raw.includes('UNAVAILABLE') || raw.includes('high demand') || response.status === 503) {
           errorMsg = 'Os servidores do Gemini estão com alta demanda momentânea. Aguarde alguns segundos e tente novamente.';
         } else if (raw.includes('429') || response.status === 429) {
           errorMsg = 'Limite de requisições por minuto atingido. Aguarde um instante.';
+        } else if (stripped.length > 0 && stripped.length < 250 && !stripped.toLowerCase().includes('internal server error')) {
+          errorMsg = stripped;
         } else {
           errorMsg = `${defaultErrorText} (HTTP ${response.status})`;
         }

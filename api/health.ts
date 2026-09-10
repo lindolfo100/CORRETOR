@@ -6,7 +6,6 @@ export default function handler(req: any, res: any) {
   return res.status(200).json({
     status: "ok",
     service: "enem-ai-api",
-    endpoints: ["/api/ocr", "/api/analyze", "/api/health"],
     hasApiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY")
   });
 }
