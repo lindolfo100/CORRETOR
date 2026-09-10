@@ -50,18 +50,24 @@ async function safeParseResponse(response: Response, defaultErrorText: string): 
   const contentType = response.headers.get('content-type') || '';
   if (!response.ok) {
     let errorMsg = `${defaultErrorText} (HTTP ${response.status})`;
+    let requiresApiKey = response.status === 401;
+
     try {
       if (contentType.includes('application/json')) {
         const errorData = await response.json();
         errorMsg = errorData.error || errorMsg;
+        if (errorData.requiresApiKey || response.status === 401) {
+          requiresApiKey = true;
+        }
       } else {
         const raw = await response.text();
         const stripped = raw.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
 
-        if (stripped.includes('GEMINI_API_KEY') || raw.includes('GEMINI_API_KEY')) {
-          errorMsg = 'A chave GEMINI_API_KEY não foi configurada nas variáveis de ambiente da Vercel. Adicione GEMINI_API_KEY no painel da Vercel ou insira sua chave diretamente no ícone de configurações da aplicação.';
+        if (response.status === 401 || stripped.includes('chave') || raw.includes('GEMINI_API_KEY')) {
+          errorMsg = 'Chave da API do Gemini não configurada ou inválida. Insira sua chave gratuita do Google AI Studio nas configurações para continuar.';
+          requiresApiKey = true;
         } else if (response.status === 413 || raw.includes('413') || raw.includes('Payload Too Large')) {
-          errorMsg = 'A imagem é muito pesada para envio à Vercel (limite de 4.5MB). Tente diminuir a resolução ou comprimir a foto antes de enviar.';
+          errorMsg = 'A imagem é muito pesada para envio (limite de 4.5MB). Tente diminuir a resolução ou comprimir a foto antes de enviar.';
         } else if (raw.includes('503') || raw.includes('UNAVAILABLE') || raw.includes('high demand') || response.status === 503) {
           errorMsg = 'Os servidores do Gemini estão com alta demanda momentânea. Aguarde alguns segundos e tente novamente.';
         } else if (raw.includes('429') || response.status === 429) {
@@ -75,7 +81,10 @@ async function safeParseResponse(response: Response, defaultErrorText: string): 
     } catch {
       // ignore
     }
-    throw Object.assign(new Error(errorMsg), { status: response.status });
+    const err: any = new Error(errorMsg);
+    err.status = response.status;
+    err.requiresApiKey = requiresApiKey;
+    throw err;
   }
 
   if (contentType.includes('application/json')) {
@@ -90,6 +99,30 @@ async function safeParseResponse(response: Response, defaultErrorText: string): 
     return JSON.parse(text);
   } catch {
     return { text };
+  }
+}
+
+export async function validateGeminiApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+  try {
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      return { valid: false, error: 'Por favor, insira o código da sua chave de API.' };
+    }
+    const response = await fetch('/api/validate-key', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-gemini-api-key': trimmed,
+      },
+      body: JSON.stringify({ apiKey: trimmed })
+    });
+    const data = await response.json();
+    if (!response.ok || !data.valid) {
+      return { valid: false, error: data.error || 'Chave de API inválida' };
+    }
+    return { valid: true };
+  } catch (err: any) {
+    return { valid: false, error: err?.message || 'Falha ao conectar ao servidor para validar a chave.' };
   }
 }
 
@@ -145,6 +178,9 @@ REGRAS ESTRITAS:
       }
 
       console.error("OCR falhou", err);
+      if (err?.status === 401 || err?.requiresApiKey || err?.message?.includes("API key not valid") || err?.message?.includes("chave")) {
+        throw new Error("Chave da API do Gemini não configurada ou inválida. Por favor, insira sua chave gratuita do Google AI Studio nas configurações do aplicativo.");
+      }
       throw err;
     }
   };
@@ -364,8 +400,8 @@ Foi sinalizado que este texto pertence a um aluno com Transtorno do Espectro Aut
       }
 
       console.error("AI processing failed", err);
-      if (err?.message?.includes("API key not valid") || err?.message?.includes("INVALID_ARGUMENT")) {
-        throw new Error("A chave da API do Gemini é inválida ou não foi configurada. Configure a GEMINI_API_KEY nos Secrets do AI Studio.");
+      if (err?.status === 401 || err?.requiresApiKey || err?.message?.includes("API key not valid") || err?.message?.includes("INVALID_ARGUMENT") || err?.message?.includes("chave")) {
+        throw new Error("Chave da API do Gemini não configurada ou inválida. Por favor, configure sua chave gratuita do Google AI Studio nas configurações do aplicativo para analisar redações.");
       }
       throw err;
     }

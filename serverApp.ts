@@ -3,6 +3,7 @@ import "dotenv/config";
 import ocrHandler from "./api/ocr";
 import analyzeHandler from "./api/analyze";
 import healthHandler from "./api/health";
+import validateKeyHandler from "./api/validate-key";
 import { getAI, getNumericStatus, generateContentWithFallback } from "./api/_gemini";
 
 export { getAI, getNumericStatus, generateContentWithFallback };
@@ -16,6 +17,9 @@ export function createExpressApp() {
   // API endpoints (mounted on both /api and /)
   app.all("/api/health", (req, res) => healthHandler(req, res));
   app.all("/health", (req, res) => healthHandler(req, res));
+
+  app.all("/api/validate-key", (req, res) => validateKeyHandler(req, res));
+  app.all("/validate-key", (req, res) => validateKeyHandler(req, res));
 
   app.all("/api/ocr", (req, res) => ocrHandler(req, res));
   app.all("/ocr", (req, res) => ocrHandler(req, res));

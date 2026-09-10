@@ -1,7 +1,36 @@
 import { GoogleGenAI } from "@google/genai";
 import "dotenv/config";
 
-let defaultGenAI: GoogleGenAI | null = null;
+export class MissingApiKeyError extends Error {
+  status = 401;
+  code = 401;
+  requiresApiKey = true;
+
+  constructor(message?: string) {
+    super(
+      message ||
+      "Nenhuma chave da API do Gemini foi fornecida. Como esta aplicação roda na Vercel com chave individual por usuário, por favor insira sua chave gratuita do Google AI Studio nas configurações do aplicativo para analisar as redações."
+    );
+    this.name = "MissingApiKeyError";
+  }
+}
+
+let cachedEnvAI: GoogleGenAI | null = null;
+
+export function extractApiKey(req: any, body?: any): string | undefined {
+  const headerKey = (req?.headers?.["x-gemini-api-key"] || req?.headers?.["x-api-key"]) as string | undefined;
+  if (headerKey && headerKey.trim().length > 0) {
+    return headerKey.trim();
+  }
+  if (body?.apiKey && typeof body.apiKey === "string" && body.apiKey.trim().length > 0) {
+    return body.apiKey.trim();
+  }
+  const envKey = process.env.GEMINI_API_KEY;
+  if (envKey && envKey !== "MY_GEMINI_API_KEY" && envKey.trim().length > 0) {
+    return envKey.trim();
+  }
+  return undefined;
+}
 
 export function getAI(customApiKey?: string) {
   if (customApiKey && customApiKey.trim().length > 0) {
@@ -15,28 +44,28 @@ export function getAI(customApiKey?: string) {
     });
   }
 
-  if (!defaultGenAI) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
-      throw new Error(
-        "A chave GEMINI_API_KEY não foi configurada nas variáveis de ambiente da Vercel. " +
-        "Acesse o painel da Vercel (Project > Settings > Environment Variables) e adicione GEMINI_API_KEY, " +
-        "ou informe uma chave diretamente nas configurações da aplicação."
-      );
-    }
-    defaultGenAI = new GoogleGenAI({
-      apiKey: apiKey.trim(),
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
+  const envKey = process.env.GEMINI_API_KEY;
+  if (envKey && envKey !== "MY_GEMINI_API_KEY" && envKey.trim().length > 0) {
+    if (!cachedEnvAI) {
+      cachedEnvAI = new GoogleGenAI({
+        apiKey: envKey.trim(),
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
         }
-      }
-    });
+      });
+    }
+    return cachedEnvAI;
   }
-  return defaultGenAI;
+
+  throw new MissingApiKeyError();
 }
 
 export function getNumericStatus(error: any): number {
+  if (error instanceof MissingApiKeyError || error?.status === 401 || error?.code === 401) {
+    return 401;
+  }
   if (typeof error?.status === "number" && error.status >= 100 && error.status < 600) {
     return error.status;
   }
@@ -47,13 +76,24 @@ export function getNumericStatus(error: any): number {
   const codeStr = String(error?.code || "").toUpperCase();
   const msg = String(error?.message || "").toLowerCase();
 
+  if (
+    msg.includes("chave") ||
+    msg.includes("api_key_invalid") ||
+    msg.includes("api key not valid") ||
+    msg.includes("api key is invalid") ||
+    msg.includes("unauthenticated") ||
+    statusStr === "UNAUTHENTICATED" ||
+    codeStr === "401"
+  ) {
+    return 401;
+  }
   if (statusStr === "UNAVAILABLE" || codeStr === "503" || msg.includes("503") || msg.includes("unavailable") || msg.includes("high demand")) {
     return 503;
   }
   if (statusStr === "RESOURCE_EXHAUSTED" || codeStr === "429" || msg.includes("429") || msg.includes("quota") || msg.includes("resource_exhausted")) {
     return 429;
   }
-  if (statusStr === "INVALID_ARGUMENT" || codeStr === "400" || msg.includes("invalid_argument") || msg.includes("api key not valid")) {
+  if (statusStr === "INVALID_ARGUMENT" || codeStr === "400" || msg.includes("invalid_argument")) {
     return 400;
   }
   return 500;

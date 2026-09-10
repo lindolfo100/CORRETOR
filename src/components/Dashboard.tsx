@@ -1,11 +1,12 @@
 import React, { useState, useCallback } from 'react';
 import { Essay, Classroom } from '../types';
-import { UploadSimple, FileText, CheckCircle, Clock, MagnifyingGlass, Warning, Trash, Gear, Key, ArrowUpRight, X, WarningCircle } from '@phosphor-icons/react';
+import { UploadSimple, FileText, CheckCircle, Clock, MagnifyingGlass, Warning, Trash, Key } from '@phosphor-icons/react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ProgressBar } from './ProgressBar';
 import { ProcessingStepper } from './ProcessingStepper';
 import { SkeletonCard, SkeletonTableRow } from './Skeleton';
+import { ApiKeyModal } from './ApiKeyModal';
 
 interface DashboardProps {
   essays: Essay[];
@@ -27,36 +28,20 @@ export function Dashboard({ essays, classrooms = [], globalTheme, onGlobalThemeC
   const [sortField, setSortField] = useState<'uploadedAt' | 'score' | 'theme'>('uploadedAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [isDragOver, setIsDragOver] = useState(false);
-  const [aiStatus] = useState<'checking' | 'ready' | 'error'>(() => {
-    const localKey = localStorage.getItem('user_gemini_api_key');
+  const [aiStatus, setAiStatus] = useState<'checking' | 'ready' | 'error'>(() => {
+    const localKey = typeof window !== 'undefined' ? localStorage.getItem('user_gemini_api_key') : null;
     return (!localKey || localKey.trim() === '') ? 'error' : 'ready';
   });
-  const [showSettings, setShowSettings] = useState(() => {
-    const localKey = localStorage.getItem('user_gemini_api_key');
-    return (!localKey || localKey.trim() === '');
-  });
-  const [tempApiKey, setTempApiKey] = useState(localStorage.getItem('user_gemini_api_key') || '');
-  const [selectedModel, setSelectedModel] = useState(() => {
-    const m = localStorage.getItem('user_gemini_model');
-    if (!m || m === 'gemini-flash-lite-latest') return 'gemini-flash-latest';
-    return m;
-  });
-  const [isSavingKey, setIsSavingKey] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
-  const saveApiKey = () => {
-    setIsSavingKey(true);
-    if (tempApiKey.trim() === '') {
-      localStorage.removeItem('user_gemini_api_key');
-    } else {
-      localStorage.setItem('user_gemini_api_key', tempApiKey.trim());
-    }
-    localStorage.setItem('user_gemini_model', selectedModel);
-    setTimeout(() => {
-      setIsSavingKey(false);
-      setShowSettings(false);
-      window.location.reload(); 
-    }, 500);
-  };
+  React.useEffect(() => {
+    const updateKeyStatus = () => {
+      const localKey = localStorage.getItem('user_gemini_api_key');
+      setAiStatus((!localKey || localKey.trim() === '') ? 'error' : 'ready');
+    };
+    window.addEventListener('gemini_key_updated', updateKeyStatus);
+    return () => window.removeEventListener('gemini_key_updated', updateKeyStatus);
+  }, []);
 
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -267,152 +252,11 @@ export function Dashboard({ essays, classrooms = [], globalTheme, onGlobalThemeC
   
   return (
     <>
-      <AnimatePresence>
-        {showSettings && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowSettings(false)}
-              className="absolute inset-0 bg-[#111827]/40 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.98, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: 10 }}
-              className="relative w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden border border-[#E5E7EB]"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="p-6 border-b border-[#E5E7EB] flex justify-between items-center bg-[#F8F9FA]">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-[#111827] text-white rounded-lg flex items-center justify-center">
-                    <Key size={16} />
-                  </div>
-                  <h3 className="font-bold text-[#111827] tracking-tight text-base">Configurações de IA</h3>
-                </div>
-                <button 
-                  onClick={() => setShowSettings(false)}
-                  className="p-2 text-[#D1D5DB] hover:text-[#111827] hover:bg-black/5 rounded-lg transition-all cursor-pointer"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="p-8 space-y-6">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-[#6B7280] mb-3">Chave de API do Gemini</label>
-                  <div className="relative">
-                    <input 
-                      type="password"
-                      value={tempApiKey}
-                      onChange={(e) => setTempApiKey(e.target.value)}
-                      placeholder="Cole sua API Key do Google AI Studio..."
-                      className="w-full pl-5 pr-10 py-3.5 bg-[#F8F9FA] border border-[#E5E7EB] rounded-xl focus:ring-1 focus:ring-[#2563EB] focus:outline-none text-sm font-mono placeholder:text-[#D1D5DB]"
-                    />
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[#D1D5DB]">
-                      <Key size={16} />
-                    </div>
-                  </div>
-                  <div className="mt-6 p-5 bg-[#F8F9FA] rounded-xl border border-[#E5E7EB] space-y-4">
-                    <div className="flex gap-3 text-xs leading-relaxed text-[#6B7280] font-medium">
-                      <WarningCircle weight="fill" className="w-4 h-4 shrink-0 text-[#2563EB]" />
-                      <p>Sua chave fica salva apenas localmente no navegador e não é enviada para nenhum servidor externo além do Google AI Studio.</p>
-                    </div>
-                    <a 
-                      href="https://aistudio.google.com/app/apikey" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2 w-full py-2.5 bg-white border border-[#E5E7EB] rounded-lg text-[10px] font-bold uppercase tracking-widest text-[#111827] hover:bg-[#F8F9FA] transition-all"
-                    >
-                      Obter Chave Grátis <ArrowUpRight weight="bold" size={12} />
-                    </a>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-widest text-[#6B7280] mb-3">Modelo Gemini Selecionado</label>
-                  <div className="space-y-2.5">
-                    <div 
-                      onClick={() => setSelectedModel('gemini-flash-latest')}
-                      className={cn(
-                        "p-4 rounded-xl border transition-all cursor-pointer flex items-start gap-3",
-                        selectedModel === 'gemini-flash-latest' 
-                          ? "bg-[#2563EB]/5 border-[#2563EB] shadow-xs" 
-                          : "bg-[#F8F9FA] border-[#E5E7EB] hover:border-[#D1D5DB]"
-                      )}
-                    >
-                      <div className={cn(
-                        "w-4 h-4 rounded-full border flex items-center justify-center mt-0.5 shrink-0 transition-colors",
-                        selectedModel === 'gemini-flash-latest' ? "border-[#2563EB] bg-[#2563EB]" : "border-[#D1D5DB] bg-white"
-                      )}>
-                        {selectedModel === 'gemini-flash-latest' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-bold text-xs text-[#111827]">gemini-flash-latest</span>
-                          <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#2563EB]/10 text-[#2563EB]">Padrão ENEM</span>
-                        </div>
-                        <p className="text-xs text-[#6B7280] leading-relaxed">
-                          Correção profunda das 5 competências do ENEM, identificação minuciosa de desvios e repertórios.
-                        </p>
-                      </div>
-                    </div>
-
-                    <div 
-                      onClick={() => setSelectedModel('gemini-3.1-flash-lite')}
-                      className={cn(
-                        "p-4 rounded-xl border transition-all cursor-pointer flex items-start gap-3",
-                        selectedModel === 'gemini-3.1-flash-lite' 
-                          ? "bg-[#2563EB]/5 border-[#2563EB] shadow-xs" 
-                          : "bg-[#F8F9FA] border-[#E5E7EB] hover:border-[#D1D5DB]"
-                      )}
-                    >
-                      <div className={cn(
-                        "w-4 h-4 rounded-full border flex items-center justify-center mt-0.5 shrink-0 transition-colors",
-                        selectedModel === 'gemini-3.1-flash-lite' ? "border-[#2563EB] bg-[#2563EB]" : "border-[#D1D5DB] bg-white"
-                      )}>
-                        {selectedModel === 'gemini-3.1-flash-lite' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-bold text-xs text-[#111827]">gemini-3.1-flash-lite</span>
-                          <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#059669]/10 text-[#059669]">Ultra Rápido</span>
-                        </div>
-                        <p className="text-xs text-[#6B7280] leading-relaxed">
-                          Ideal para processamento veloz de transcrições OCR e turmas numerosas com alta taxa de requisições.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button 
-                    onClick={() => setShowSettings(false)}
-                    className="flex-1 px-4 py-3 border border-[#E5E7EB] text-[#6B7280] rounded-lg font-bold text-sm hover:bg-[#F8F9FA] transition-all cursor-pointer"
-                  >
-                    Voltar
-                  </button>
-                  <button 
-                    onClick={saveApiKey}
-                    disabled={isSavingKey}
-                    className="flex-1 px-4 py-3 bg-[#111827] text-white rounded-lg font-bold text-sm hover:bg-[#222222] shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer flex items-center justify-center gap-2 transition-all"
-                  >
-                    {isSavingKey ? (
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <>
-                        Salvar Ajustes
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <ApiKeyModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        onKeySaved={() => setAiStatus('ready')}
+      />
 
       <div
       className={cn(
@@ -543,15 +387,18 @@ export function Dashboard({ essays, classrooms = [], globalTheme, onGlobalThemeC
 
           <button 
             onClick={() => setShowSettings(true)}
-            title="Configurações de IA"
+            title={aiStatus === 'error' ? "Configurar Chave da API do Gemini" : "Chave do Gemini Ativa"}
             className={cn(
-              "p-2.5 rounded-lg transition-all cursor-pointer border flex items-center active:scale-95",
+              "px-3 py-2.5 rounded-lg transition-all cursor-pointer border flex items-center gap-2 active:scale-95 text-xs font-bold",
               aiStatus === 'error' 
-                ? "bg-red-50 border-red-200 text-red-600 hover:bg-red-100 shadow-sm shadow-red-100" 
-                : "bg-white border-[#E5E7EB] text-[#6B7280] hover:text-[#111827] hover:bg-[#F1F3F5]"
+                ? "bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100 shadow-xs" 
+                : "bg-white border-[#E5E7EB] text-[#374151] hover:text-[#111827] hover:bg-[#F8F9FA]"
             )}
           >
-            <Gear weight="bold" size={20} />
+            <Key weight="bold" size={16} className={aiStatus === 'error' ? "text-amber-600 animate-pulse" : "text-emerald-600"} />
+            <span className="hidden sm:inline uppercase text-[10px] tracking-wider">
+              {aiStatus === 'error' ? 'Configurar Chave' : 'Chave Ativa'}
+            </span>
           </button>
         </div>
       </div>

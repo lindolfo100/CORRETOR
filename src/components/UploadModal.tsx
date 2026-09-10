@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { UploadSimple, X, FileText, Image as ImageIcon, Brain, Ear, PuzzlePiece } from '@phosphor-icons/react';
+import { UploadSimple, X, FileText, Image as ImageIcon, Brain, Ear, PuzzlePiece, Key } from '@phosphor-icons/react';
 import { cn } from '../lib/utils';
 import { SPECIAL_NEEDS_LABELS } from '../lib/rubricData';
 import { motion, AnimatePresence } from 'motion/react';
+import { ApiKeyModal } from './ApiKeyModal';
 
 type SpecialNeedsProfile = 'none' | 'dislexia' | 'surdez' | 'tea';
 
@@ -31,6 +32,20 @@ export function UploadModal({ files, defaultTheme, onConfirm, onCancel }: Upload
   const [items, setItems] = useState<UploadFileItem[]>(() =>
     files.map(file => ({ file, preview: null, specialNeedsProfile: 'none' as SpecialNeedsProfile }))
   );
+  const [hasApiKey, setHasApiKey] = useState(() => {
+    const key = typeof window !== 'undefined' ? localStorage.getItem('user_gemini_api_key') : null;
+    return Boolean(key && key.trim().length > 0);
+  });
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+
+  useEffect(() => {
+    const updateKey = () => {
+      const key = localStorage.getItem('user_gemini_api_key');
+      setHasApiKey(Boolean(key && key.trim().length > 0));
+    };
+    window.addEventListener('gemini_key_updated', updateKey);
+    return () => window.removeEventListener('gemini_key_updated', updateKey);
+  }, []);
 
   // Load image previews asynchronously (setState in FileReader callback is fine)
   useEffect(() => {
@@ -105,6 +120,22 @@ export function UploadModal({ files, defaultTheme, onConfirm, onCancel }: Upload
 
           {/* Content */}
           <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+            {!hasApiKey && (
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-3 text-xs text-amber-900">
+                <div className="flex items-center gap-2">
+                  <Key className="w-4 h-4 text-amber-600 shrink-0" weight="bold" />
+                  <span className="font-medium">Chave da IA não configurada. Configure para enviar para correção.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowApiKeyModal(true)}
+                  className="px-3 py-1.5 bg-[#111827] text-white rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-black transition-all shrink-0 cursor-pointer"
+                >
+                  Configurar
+                </button>
+              </div>
+            )}
+
             {/* Theme */}
             <div>
               <label className="text-[10px] uppercase font-bold text-[#6B7280] tracking-widest pl-1 mb-2 block">
@@ -233,6 +264,12 @@ export function UploadModal({ files, defaultTheme, onConfirm, onCancel }: Upload
           </div>
         </motion.div>
       </div>
+
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        onKeySaved={() => setHasApiKey(true)}
+      />
     </AnimatePresence>
   );
 }

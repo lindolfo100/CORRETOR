@@ -15,7 +15,8 @@ import {
   ChatCircleText,
   ArrowRight,
   ArrowLeft,
-  ListDashes
+  ListDashes,
+  Key
 } from '@phosphor-icons/react';
 import { cn } from '../lib/utils';
 import { motion } from 'motion/react';
@@ -25,6 +26,7 @@ import { HighlightedText } from './HighlightedText';
 import { CompetencyScoreChart } from './CompetencyScoreChart';
 import { fetchLanguageToolInsights } from '../services/aiService';
 import { RUBRIC_DATA } from '../lib/rubricData';
+import { ApiKeyModal } from './ApiKeyModal';
 
 interface CorrectionViewProps {
   essay: Essay;
@@ -69,6 +71,16 @@ export function CorrectionView({
   const [isRunningLT, setIsRunningLT] = useState(false);
   const [activeHighlightText, setActiveHighlightText] = useState<string | null>(null);
   const [prevEssayId, setPrevEssayId] = useState(essay.id);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState(() => Boolean(localStorage.getItem('user_gemini_api_key')?.trim()));
+
+  useEffect(() => {
+    const handleKeyUpdate = () => {
+      setHasApiKey(Boolean(localStorage.getItem('user_gemini_api_key')?.trim()));
+    };
+    window.addEventListener('gemini_key_updated', handleKeyUpdate);
+    return () => window.removeEventListener('gemini_key_updated', handleKeyUpdate);
+  }, []);
 
   if (essay.id !== prevEssayId) {
     setPrevEssayId(essay.id);
@@ -266,38 +278,79 @@ export function CorrectionView({
     addToast('Adicionado ao parecer!', 'success', 1200);
   };
 
-  const renderErrorState = () => (
-    <div className="max-w-xl mx-auto space-y-8 py-6">
-      <div className="bg-white p-8 rounded-2xl border border-red-100 shadow-sm flex flex-col items-center text-center">
-        <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mb-6 border border-red-100 shadow-xs">
-          <Warning weight="fill" size={32} />
-        </div>
-        <h3 className="text-xl font-bold tracking-tight text-[#111827]">Não foi possível corrigir este arquivo</h3>
-        <p className="text-sm mt-2 text-[#6B7280] font-medium leading-relaxed">
-          A inteligência artificial encontrou uma falha na transcrição ou na avaliação da redação.
-        </p>
-        
-        {onRetry && (
-          <button
-            onClick={() => onRetry(essay.id)}
-            className="mt-8 flex items-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-all cursor-pointer shadow-md shadow-[#2563EB]/20 active:scale-95"
-          >
-            Reanalisar Redação
-          </button>
-        )}
-      </div>
+  const renderErrorState = () => {
+    const isKeyIssue = !hasApiKey || 
+      essay.error?.toLowerCase().includes('chave') || 
+      essay.error?.toLowerCase().includes('api_key') || 
+      essay.error?.toLowerCase().includes('api key') ||
+      essay.error?.toLowerCase().includes('401') || 
+      essay.error?.toLowerCase().includes('500');
 
-      <div className="bg-[#111827] text-gray-100 p-6 rounded-2xl border border-gray-800 shadow-xl overflow-hidden">
-        <div className="flex items-center justify-between border-b border-gray-800 pb-3 mb-4">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 font-mono">🔍 Log Técnico</span>
-          <span className="text-[9px] font-bold uppercase tracking-widest text-[#EF4444] font-mono">Falha</span>
+    return (
+      <div className="max-w-xl mx-auto space-y-8 py-6">
+        <div className="bg-white p-8 rounded-2xl border border-red-100 shadow-sm flex flex-col items-center text-center">
+          <div className="w-16 h-16 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mb-6 border border-red-100 shadow-xs">
+            <Warning weight="fill" size={32} />
+          </div>
+          <h3 className="text-xl font-bold tracking-tight text-[#111827]">Não foi possível corrigir este arquivo</h3>
+          <p className="text-sm mt-2 text-[#6B7280] font-medium leading-relaxed">
+            {isKeyIssue && !hasApiKey
+              ? "É necessário configurar sua chave da API do Gemini para analisar as redações."
+              : "A inteligência artificial encontrou uma falha na transcrição ou na avaliação da redação."}
+          </p>
+          
+          {/* Action Card for API Key */}
+          <div className="w-full mt-6 p-5 bg-[#F8F9FA] border border-[#E5E7EB] rounded-xl text-left">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#111827] text-white flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                <Key size={16} weight="bold" />
+              </div>
+              <div className="flex-1">
+                <h4 className="font-bold text-[#111827] text-xs uppercase tracking-wider">
+                  {hasApiKey ? 'Chave do Gemini Configurada' : 'Chave de API Necessária'}
+                </h4>
+                <p className="text-xs text-[#6B7280] mt-1 leading-relaxed">
+                  Como este aplicativo roda na Vercel com chave individual por usuário, você deve utilizar sua própria chave gratuita do Google AI Studio.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowApiKeyModal(true)}
+              className="mt-4 w-full py-2.5 px-4 bg-[#111827] hover:bg-black text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95"
+            >
+              <Key size={14} weight="bold" />
+              {hasApiKey ? 'Trocar ou Testar Minha Chave' : 'Inserir Minha Chave Gratuita'}
+            </button>
+          </div>
+
+          {onRetry && (
+            <button
+              onClick={() => {
+                if (!hasApiKey) {
+                  setShowApiKeyModal(true);
+                } else {
+                  onRetry(essay.id);
+                }
+              }}
+              className="mt-6 w-full flex items-center justify-center gap-2 bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest transition-all cursor-pointer shadow-md shadow-[#2563EB]/20 active:scale-95"
+            >
+              Reanalisar Redação
+            </button>
+          )}
         </div>
-        <div className="font-mono text-xs text-red-300 bg-red-950/20 p-4 rounded-lg border border-red-900/40 overflow-x-auto select-all max-h-40 whitespace-pre-wrap leading-relaxed">
-          {essay.error || 'Erro interno da API do Gemini ou formato do arquivo incompatível.'}
+
+        <div className="bg-[#111827] text-gray-100 p-6 rounded-2xl border border-gray-800 shadow-xl overflow-hidden">
+          <div className="flex items-center justify-between border-b border-gray-800 pb-3 mb-4">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 font-mono">🔍 Log Técnico</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[#EF4444] font-mono">Falha</span>
+          </div>
+          <div className="font-mono text-xs text-red-300 bg-red-950/20 p-4 rounded-lg border border-red-900/40 overflow-x-auto select-all max-h-40 whitespace-pre-wrap leading-relaxed">
+            {essay.error || 'Erro interno da API do Gemini ou formato do arquivo incompatível.'}
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   if (!analysis && essay.status !== 'error') return null;
 
@@ -1303,6 +1356,18 @@ export function CorrectionView({
           </div>
         </div>
       </div>
+
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={() => setShowApiKeyModal(false)}
+        onKeySaved={() => {
+          setShowApiKeyModal(false);
+          if (essay.status === 'error' && onRetry) {
+            onRetry(essay.id);
+          }
+        }}
+        reasonMessage="Informe sua chave do Gemini para reanalisar esta redação."
+      />
     </div>
   );
 }
