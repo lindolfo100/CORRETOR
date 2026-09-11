@@ -159,25 +159,48 @@ export async function parseRequestBody(req: any): Promise<any> {
     }
   }
 
-  // If body is not yet parsed, read from readable stream
-  if (typeof req.on === "function") {
-    return new Promise((resolve) => {
-      let data = "";
-      req.on("data", (chunk: any) => {
-        data += chunk;
-      });
-      req.on("end", () => {
+  // If stream already completed or cannot receive more data, avoid hanging
+  if (req.readableEnded || req.complete || !req.on || typeof req.on !== "function") {
+    return {};
+  }
+
+  // If body is not yet parsed, read from readable stream with 2s timeout guard
+  return new Promise((resolve) => {
+    let data = "";
+    let finished = false;
+
+    const timer = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        resolve({});
+      }
+    }, 2000);
+
+    req.on("data", (chunk: any) => {
+      data += chunk;
+    });
+    req.on("end", () => {
+      if (!finished) {
+        finished = true;
+        clearTimeout(timer);
         try {
           resolve(JSON.parse(data));
         } catch {
           resolve({});
         }
-      });
-      req.on("error", () => {
-        resolve({});
-      });
+      }
     });
-  }
+    req.on("error", () => {
+      if (!finished) {
+        finished = true;
+        clearTimeout(timer);
+        resolve({});
+      }
+    });
+  });
+}
 
-  return {};
+export default function handler(req: any, res: any) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  return res.status(200).json({ status: "ok", service: "enem-gemini-helper" });
 }

@@ -3,9 +3,25 @@
   "framework": "vite",
   "outputDirectory": "dist",
   "functions": {
-    "api/*.ts": {
+    "api/ocr.ts": {
       "maxDuration": 60,
       "memory": 1024
+    },
+    "api/analyze.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "api/validate-key.ts": {
+      "maxDuration": 30,
+      "memory": 512
+    },
+    "api/health.ts": {
+      "maxDuration": 15,
+      "memory": 512
+    },
+    "api/index.ts": {
+      "maxDuration": 15,
+      "memory": 512
     }
   },
   "rewrites": [

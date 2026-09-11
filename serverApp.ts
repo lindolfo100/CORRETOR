@@ -1,10 +1,10 @@
 import express from "express";
 import "dotenv/config";
-import ocrHandler from "./api/ocr";
-import analyzeHandler from "./api/analyze";
-import healthHandler from "./api/health";
-import validateKeyHandler from "./api/validate-key";
-import { getAI, getNumericStatus, generateContentWithFallback } from "./api/_gemini";
+import ocrHandler from "./api/ocr.ts";
+import analyzeHandler from "./api/analyze.ts";
+import healthHandler from "./api/health.ts";
+import validateKeyHandler from "./api/validate-key.ts";
+import { getAI, getNumericStatus, generateContentWithFallback } from "./api/_gemini.ts";
 
 export { getAI, getNumericStatus, generateContentWithFallback };
 

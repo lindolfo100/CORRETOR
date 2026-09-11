@@ -14,13 +14,20 @@ export async function fetchLanguageToolInsights(text: string): Promise<{ text: s
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await response.text().catch(() => '');
       console.error('LanguageTool API error:', response.status, errorText);
       return [];
     }
 
-    const data = await response.json();
-    if (!data.matches) return [];
+    const raw = await response.text();
+    let data: any = null;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+
+    if (!data?.matches) return [];
 
     return data.matches.map((m: any) => {
       const matchText = text.substring(m.context.offset, m.context.offset + m.context.length);
@@ -47,59 +54,59 @@ function getSavedModel(fallback: string = 'gemini-3.8-flash'): string {
 }
 
 async function safeParseResponse(response: Response, defaultErrorText: string): Promise<any> {
-  const contentType = response.headers.get('content-type') || '';
+  const rawText = await response.text();
+  let parsedJson: any = null;
+  try {
+    parsedJson = JSON.parse(rawText);
+  } catch {
+    parsedJson = null;
+  }
+
   if (!response.ok) {
     let errorMsg = `${defaultErrorText} (HTTP ${response.status})`;
     let requiresApiKey = response.status === 401;
 
-    try {
-      if (contentType.includes('application/json')) {
-        const errorData = await response.json();
-        errorMsg = errorData.error || errorMsg;
-        if (errorData.requiresApiKey || response.status === 401) {
-          requiresApiKey = true;
-        }
-      } else {
-        const raw = await response.text();
-        const stripped = raw.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
-
-        if (response.status === 401 || stripped.includes('chave') || raw.includes('GEMINI_API_KEY')) {
-          errorMsg = 'Chave da API do Gemini não configurada ou inválida. Insira sua chave gratuita do Google AI Studio nas configurações para continuar.';
-          requiresApiKey = true;
-        } else if (response.status === 413 || raw.includes('413') || raw.includes('Payload Too Large')) {
-          errorMsg = 'A imagem é muito pesada para envio (limite de 4.5MB). Tente diminuir a resolução ou comprimir a foto antes de enviar.';
-        } else if (raw.includes('503') || raw.includes('UNAVAILABLE') || raw.includes('high demand') || response.status === 503) {
-          errorMsg = 'Os servidores do Gemini estão com alta demanda momentânea. Aguarde alguns segundos e tente novamente.';
-        } else if (raw.includes('429') || response.status === 429) {
-          errorMsg = 'Limite de requisições por minuto atingido. Aguarde um instante.';
-        } else if (stripped.length > 0 && stripped.length < 250 && !stripped.toLowerCase().includes('internal server error')) {
-          errorMsg = stripped;
-        } else {
-          errorMsg = `${defaultErrorText} (HTTP ${response.status})`;
-        }
+    if (parsedJson && typeof parsedJson === 'object' && parsedJson.error) {
+      errorMsg = parsedJson.error;
+      if (parsedJson.requiresApiKey || response.status === 401) {
+        requiresApiKey = true;
       }
-    } catch {
-      // ignore
+    } else {
+      const stripped = rawText.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+
+      if (rawText.includes('A server error') || rawText.includes('FUNCTION_INVOCATION')) {
+        errorMsg = 'Falha no servidor da Vercel (FUNCTION_INVOCATION_FAILED). Você pode inserir sua chave gratuita do Google AI Studio nas configurações do aplicativo para corrigir diretamente pelo navegador.';
+        requiresApiKey = true;
+      } else if (response.status === 401 || stripped.includes('chave') || rawText.includes('GEMINI_API_KEY')) {
+        errorMsg = 'Chave da API do Gemini não configurada ou inválida. Insira sua chave gratuita do Google AI Studio nas configurações para continuar.';
+        requiresApiKey = true;
+      } else if (response.status === 413 || rawText.includes('413') || rawText.includes('Payload Too Large')) {
+        errorMsg = 'A imagem é muito pesada para envio (limite de 4.5MB). Tente diminuir a resolução ou comprimir a foto antes de enviar.';
+      } else if (rawText.includes('503') || rawText.includes('UNAVAILABLE') || rawText.includes('high demand') || response.status === 503) {
+        errorMsg = 'Os servidores do Gemini estão com alta demanda momentânea. Aguarde alguns segundos e tente novamente.';
+      } else if (rawText.includes('429') || response.status === 429) {
+        errorMsg = 'Limite de requisições por minuto atingido. Aguarde um instante.';
+      } else if (stripped.length > 0 && stripped.length < 250 && !stripped.toLowerCase().includes('internal server error')) {
+        errorMsg = stripped;
+      }
     }
+
     const err: any = new Error(errorMsg);
     err.status = response.status;
     err.requiresApiKey = requiresApiKey;
+    err.rawResponse = rawText;
     throw err;
   }
 
-  if (contentType.includes('application/json')) {
-    return await response.json();
+  if (parsedJson !== null) {
+    return parsedJson;
   }
 
-  const text = await response.text();
-  if (text.trim().startsWith('<')) {
+  if (rawText.trim().startsWith('<')) {
     throw new Error('O servidor retornou uma resposta em formato inesperado (HTML). Verifique se o servidor está ativo.');
   }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { text };
-  }
+
+  return { text: rawText };
 }
 
 export async function validateGeminiApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
@@ -108,34 +115,155 @@ export async function validateGeminiApiKey(apiKey: string): Promise<{ valid: boo
     if (!trimmed) {
       return { valid: false, error: 'Por favor, insira o código da sua chave de API.' };
     }
-    const response = await fetch('/api/validate-key', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-gemini-api-key': trimmed,
-      },
-      body: JSON.stringify({ apiKey: trimmed })
-    });
-    const data = await response.json();
-    if (!response.ok || !data.valid) {
-      return { valid: false, error: data.error || 'Chave de API inválida' };
+
+    // 1. Tentar validação no backend via /api/validate-key
+    try {
+      const response = await fetch('/api/validate-key', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-gemini-api-key': trimmed,
+        },
+        body: JSON.stringify({ apiKey: trimmed })
+      });
+
+      const rawText = await response.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // Resposta não é JSON (ex: erro HTML ou Vercel plain text)
+      }
+
+      if (data && typeof data === 'object') {
+        if (response.ok && data.valid) {
+          return { valid: true };
+        }
+        if (data.error && !rawText.includes('A server error') && response.status !== 500) {
+          return { valid: false, error: data.error };
+        }
+      }
+    } catch {
+      // Backend offline ou falha de rede; tenta validação direta no Google AI Studio
     }
-    return { valid: true };
+
+    // 2. Validação direta via Google Generative Language REST API (fallback resiliente para Vercel)
+    const directUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(trimmed)}`;
+    const directRes = await fetch(directUrl);
+    const directText = await directRes.text();
+    let directData: any = null;
+    try {
+      directData = JSON.parse(directText);
+    } catch {
+      // ignore
+    }
+
+    if (directRes.ok && directData?.models) {
+      return { valid: true };
+    }
+
+    const rawError = String(directData?.error?.message || '').toLowerCase();
+    if (rawError.includes('api key not valid') || rawError.includes('api_key_invalid') || directRes.status === 400) {
+      return { valid: false, error: 'Chave de API inválida. Verifique se você copiou o código completo gerado no Google AI Studio.' };
+    }
+    if (rawError.includes('quota') || directRes.status === 429) {
+      return { valid: false, error: 'Chave válida, porém atingiu o limite temporário de requisições do Google (Quota).' };
+    }
+    if (directData?.error?.message) {
+      return { valid: false, error: directData.error.message };
+    }
+
+    return { valid: false, error: 'Não foi possível validar a chave da API do Gemini. Verifique sua conexão com a internet.' };
   } catch (err: any) {
-    return { valid: false, error: err?.message || 'Falha ao conectar ao servidor para validar a chave.' };
+    return { valid: false, error: err?.message || 'Falha ao validar a chave da API do Gemini.' };
   }
+}
+
+async function directGeminiOCR(
+  apiKey: string,
+  base64Image: string,
+  mimeType: string,
+  promptText: string,
+  model: string
+): Promise<string> {
+  const cleanImage = base64Image.split(',')[1] || base64Image;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { inlineData: { data: cleanImage, mimeType: mimeType || 'image/jpeg' } },
+          { text: promptText }
+        ]
+      }]
+    })
+  });
+  const rawText = await res.text();
+  let data: any = null;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    // ignore
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error?.message || `Erro na API do Gemini (${res.status})`);
+  }
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "Transcrição vazia";
+}
+
+async function directGeminiAnalysis(
+  apiKey: string,
+  base64Image: string,
+  mimeType: string,
+  prompt: string,
+  systemInstruction: string,
+  model: string
+): Promise<string> {
+  const cleanImage = base64Image.split(',')[1] || base64Image;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const parts: any[] = [{ text: prompt }];
+  if (cleanImage) {
+    parts.push({
+      inlineData: {
+        data: cleanImage,
+        mimeType: mimeType || 'image/jpeg'
+      }
+    });
+  }
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      contents: [{ parts }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: essayAnalysisSchema,
+        temperature: 0.0
+      }
+    })
+  });
+  const rawText = await res.text();
+  let data: any = null;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    // ignore
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.error?.message || `Erro na API do Gemini (${res.status})`);
+  }
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 }
 
 export async function processEssayImageOCR(base64Image: string, mimeType: string = 'image/jpeg'): Promise<string> {
   const attemptOCR = async (retries = 3, delay = 2000): Promise<string> => {
-    try {
-      const localKey = typeof window !== 'undefined' ? localStorage.getItem('user_gemini_api_key') : null;
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (localKey) {
-        headers["x-gemini-api-key"] = localKey;
-      }
-
-      const promptText = `Você é um especialista em leitura de textos manuscritos (OCR manual).
+    const localKey = typeof window !== 'undefined' ? localStorage.getItem('user_gemini_api_key') : null;
+    const promptText = `Você é um especialista em leitura de textos manuscritos (OCR manual).
 Sua tarefa é transcrever com máxima fidelidade o texto manuscrito presente nesta imagem.
 
 REGRAS ESTRITAS:
@@ -147,6 +275,12 @@ REGRAS ESTRITAS:
 6. Se uma palavra estiver ilegível, transcreva o que for possível e indique com [ilegível] apenas se absolutamente impossível de decifrar.
 7. Preste atenção especial a letras que se confundem em manuscrito: a/o, n/m, u/v, l/t, r/n.
 8. Retorne SOMENTE o texto bruto transcrito, sem formatação adicional.`;
+
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (localKey) {
+        headers["x-gemini-api-key"] = localKey;
+      }
 
       const response = await fetch('/api/ocr', {
         method: 'POST',
@@ -163,14 +297,25 @@ REGRAS ESTRITAS:
       const resultData = await safeParseResponse(response, "Falha ao processar OCR da imagem");
       return resultData.text || "Transcrição vazia";
     } catch (err: any) {
+      // Se o backend falhou com erro de servidor/Vercel ou payload, e temos chave do usuário, usa fallback direto
+      const isServerError = err?.status >= 500 || err?.status === 413 || String(err?.message || '').includes('Vercel') || String(err?.message || '').includes('servidor');
+      if (isServerError && localKey) {
+        console.warn('Backend indisponível ou oscilando. Executando OCR diretamente com a chave do usuário...');
+        try {
+          return await directGeminiOCR(localKey, base64Image, mimeType, promptText, getSavedModel('gemini-3.8-flash'));
+        } catch (directErr) {
+          console.error('Fallback direto de OCR também falhou:', directErr);
+        }
+      }
+
       const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('RESOURCE_EXHAUSTED');
       const is503 = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE');
 
       if ((is429 || is503) && retries > 0) {
-        const waitTime = is429 ? Math.max(delay, 5000) : delay; // 429 needs longer waits
+        const waitTime = is429 ? Math.max(delay, 5000) : delay;
         console.warn(`OCR Gemini API ${is429 ? '429 rate-limit' : '503'}, aguardando ${waitTime}ms... (${retries} tentativas restantes)`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
-        return attemptOCR(retries - 1, waitTime * 3); // triple backoff for rate limits
+        return attemptOCR(retries - 1, waitTime * 3);
       }
 
       if (is429 && retries === 0) {
@@ -298,40 +443,59 @@ Foi sinalizado que este texto pertence a um aluno com Transtorno do Espectro Aut
   }
 
   const attemptProcess = async (retries = 3, delay = 2000): Promise<EssayAnalysis> => {
+    const localKey = typeof window !== 'undefined' ? localStorage.getItem('user_gemini_api_key') : null;
     try {
-      const localKey = typeof window !== 'undefined' ? localStorage.getItem('user_gemini_api_key') : null;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (localKey) {
         headers["x-gemini-api-key"] = localKey;
       }
 
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          image: base64Image.split(',')[1] || base64Image,
-          mimeType: mimeType || 'image/jpeg',
-          prompt,
-          systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: essayAnalysisSchema,
-          model: getSavedModel('gemini-3.8-flash')
-        })
-      });
+      let rawResponseText = "";
+      try {
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            image: base64Image.split(',')[1] || base64Image,
+            mimeType: mimeType || 'image/jpeg',
+            prompt,
+            systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: essayAnalysisSchema,
+            model: getSavedModel('gemini-3.8-flash')
+          })
+        });
 
-      const resultData = await safeParseResponse(response, "Falha ao analisar redação com IA");
+        const resultData = await safeParseResponse(response, "Falha ao analisar redação com IA");
+        rawResponseText = resultData.text || "{}";
+      } catch (fetchErr: any) {
+        const isServerError = fetchErr?.status >= 500 || fetchErr?.status === 413 || String(fetchErr?.message || '').includes('Vercel') || String(fetchErr?.message || '').includes('servidor');
+        if (isServerError && localKey) {
+          console.warn('Backend indisponível ou erro 500. Executando análise diretamente com a chave do usuário...');
+          rawResponseText = await directGeminiAnalysis(
+            localKey,
+            base64Image,
+            mimeType,
+            prompt,
+            systemInstruction,
+            getSavedModel('gemini-3.8-flash')
+          );
+        } else {
+          throw fetchErr;
+        }
+      }
       
       let result;
       try {
-        result = JSON.parse(resultData.text || "{}");
+        result = JSON.parse(rawResponseText || "{}");
       } catch (e) {
         console.warn("JSON Parse Error on AI response. Might be truncated. Attempting to repair...", e);
         try {
-          const text = resultData.text || "{}";
+          const text = rawResponseText || "{}";
           const cleanedText = text.replace(/\]\s*$/, ']}').replace(/}\s*$/, '}}');
           result = JSON.parse(cleanedText);
         } catch {
-          console.error("Failed to parse AI response:", resultData.text);
+          console.error("Failed to parse AI response:", rawResponseText);
           throw new Error("A IA devolveu uma resposta incompleta ou com falha na formatação. Tente novamente.");
         }
       }

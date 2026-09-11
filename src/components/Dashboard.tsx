@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Essay, Classroom } from '../types';
-import { UploadSimple, FileText, CheckCircle, Clock, MagnifyingGlass, Warning, Trash, Key } from '@phosphor-icons/react';
+import { UploadSimple, FileText, CheckCircle, Clock, MagnifyingGlass, Warning, WarningCircle, Trash, Key } from '@phosphor-icons/react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { ProgressBar } from './ProgressBar';

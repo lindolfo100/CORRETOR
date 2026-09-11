@@ -1,4 +1,4 @@
-import { getAI, getNumericStatus, generateContentWithFallback, parseRequestBody, extractApiKey, MissingApiKeyError } from "./_gemini";
+import { getAI, getNumericStatus, generateContentWithFallback, parseRequestBody, extractApiKey, MissingApiKeyError } from "./_gemini.ts";
 
 export default async function handler(req: any, res: any) {
   // CORS & headers
